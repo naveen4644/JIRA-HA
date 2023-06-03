@@ -1,0 +1,88 @@
+---
+- hosts: local
+  connection: local
+  gather_facts: False
+  remote_user: ubuntu
+  vars_files:
+    - ../../group_vars/all.yml
+  tasks:
+  
+  - name: Create an EC2 key
+    ec2_key:
+      name: naveen-key
+      region: "{{ region }}"
+    register: ec2_key
+  
+  - name: Save private key
+    copy: 
+      content: "{{ ec2_key.key.private_key }}" 
+      dest: "./../../../aws-private.pem" 
+      mode: 0600
+    when: ec2_key.changed
+  
+  - name: Create an EC2 instance
+    ec2:
+      key_name: naveen-key
+      region: "{{ region }}"
+      group_id: "{{ EC2_security_group }}"
+      instance_type: "{{ instance_type }}"
+      image: "{{ ami }}"
+      wait: yes
+      instance_tags:
+          Name: "{{ env }}"
+      count_tag: jira
+      exact_count: 1
+      # vpc_subnet_id: subnet-05e26831c139261eb
+      vpc_subnet_id: "{{ item }}"
+      # ec2_zone: "{{ item.zone }}"
+      assign_public_ip: yes
+    with_items: "{{ subnet_ids }}"
+    register: ec2
+  
+  - name: Add the newly created EC2 instance(s) to host group
+    lineinfile: dest={{ hostpath }}
+                regexp={{ item.instances[0].public_ip }} 
+                insertafter="[webserver]" 
+                line="{{ item.instances[0].public_ip }} {{hoststring}} {{hoststring_ssh_verification}}"
+                state=present
+    # with_items: "{{ec2.instances}}"
+    with_items: "{{ ec2.results }}"
+  
+  - wait_for: path={{ hostpath }} search_regex={{hoststring}}
+  
+  - name: Wait for SSH to come up
+    local_action: wait_for 
+                  host={{ item.instances[0].public_ip }} 
+                  port=22
+                  state=started
+    with_items: "{{ec2.results}}"
+  
+  - name: Add IP to ec2_hosts group
+    add_host: hostname={{ item.instances[0].public_ip }} groups=ec2_hosts
+    with_items: "{{ec2.results}}"
+
+  - name: setup a simple load balancer
+    ec2_elb_lb:
+          name: aws-elb-demo
+          state: present
+          region: us-east-1 
+          cross_az_load_balancing: yes
+          zones:
+            - us-east-1b
+            - us-east-1a
+            - us-east-1d
+          scheme: internet-facing
+
+          listeners:
+            - protocol: http
+              load_balancer_port: 80
+              instance_port: 8080
+    # register: aws-elb-demo
+  
+  - name: add the webservers to the load balancer
+    ec2_elb:
+        instance_id: "{{ item.instance_ids[0] }}"
+        ec2_elbs: aws-elb-demo
+        state: present
+        region: us-east-1
+    with_items: "{{ec2.results}}"

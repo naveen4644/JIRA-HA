@@ -1,0 +1,16 @@
+region: us-east-1
+instance_type: t2.medium
+ami: ami-0261755bbcb8c4a84  # Ubuntu 20.04 LTS
+project_name: testing
+env: JIRA_HA
+app_code_user: "ubuntu" # remote user
+hoststring: "ansible_ssh_user=ubuntu ansible_ssh_private_key_file=./aws-private.pem"
+hoststring_ssh_verification: "ansible_ssh_extra_args='-o StrictHostKeyChecking=no'"
+hostpath: "../../../hosts"
+efs_file_system_id: fs-074e0dae8263968de
+efs_mount_dir: /efs-jira
+nfs_package: nfs-common
+EC2_security_group: sg-00b7c7c8307fcb332
+new_host_timezone: America/Chicago
+# ec2_zone_subnet: [{"zone":"us-east-1b", "subnet":"subnet-05e26831c139261eb", "ec2_count":3},{"zone":"us-east-1d", "subnet":"subnet-0e9ebbc657c981f9c","ec2_count":1},{"zone":"us-east-1a", "subnet":"subnet-0932efedbf4581968","ec2_count":2}]
+subnet_ids: [subnet-039faaa2988210313, subnet-08e282556e7c0d97f, subnet-09ca42ff605c829cb]

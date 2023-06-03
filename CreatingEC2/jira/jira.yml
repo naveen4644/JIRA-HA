@@ -1,0 +1,101 @@
+---
+- hosts: webserver
+  # connection: local
+  gather_facts: False
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+  - name: Run the equivalent of "apt-get update" as a separate step
+    become: yes
+    apt:
+     update_cache: yes
+    
+  - name: install ntp
+    become: yes
+    apt: pkg=ntp state=present
+
+  - name: start ntp
+    become: yes
+    service: name=ntp state=started enabled=true
+  
+  - name: Set the timezone to the {{new_host_timezone}} one
+    become: yes
+    timezone: "name={{new_host_timezone}}"
+
+
+     
+  - name: Ensure NFS is installed.
+    become: yes
+    package: 
+    
+      name: "{{ nfs_package }}" 
+      state: present
+
+  - name: Create directories for the mounts
+    become: yes
+    file:
+      path: "{{ item.path | default('/efs-jira') }}"
+      state: directory
+      mode: 0777
+      owner: "{{ item.owner | default('root') }}"
+      group: "{{ item.group | default('root') }}"
+    # with_items: "{{ aws_efs_paths }}"
+  
+  - name: Ensure EFS volume is mounted.
+    become: yes
+    mount:
+        name: "{{ efs_mount_dir }}"
+        src: "{{ efs_file_system_id }}.efs.{{ region }}.amazonaws.com:/"
+        fstype: nfs4
+        opts: nfsvers=4.1
+        state: mounted
+  - name : install openjdk-11
+    become: yes
+    apt:
+      name: "{{ item }}"
+      state: present
+    with_items:
+     openjdk-11-jdk
+
+  - name: Download and extract jira
+    become: yes
+    ansible.builtin.unarchive:
+     src: https://www.atlassian.com/software/jira/downloads/binary/atlassian-jira-software-9.3.0.tar.gz
+     dest: /opt/
+     remote_src: yes
+  - name: rename jira folder
+    become: yes
+    shell: mv /opt/atlassian-jira-software-9.3.0-standalone /opt/jira
+      
+  - name: Create Directory
+    shell: mkdir -p /home/ubuntu/jira/jira-home
+
+  - name: Change ownership
+    become: yes
+    file:
+      dest: /opt/jira
+      owner: ubuntu
+      group: ubuntu
+      recurse: yes
+
+  - name: Update jira Directory path
+    replace:
+        path: /opt/jira/atlassian-jira/WEB-INF/classes/jira-application.properties
+        regexp: 'jira.home ='
+        replace: 'jira.home = /home/ubuntu/jira/jira-home'
+  # - name: Update bamboo Directory path
+  #   lineinfile:
+  #       dest: /opt/confluence/confluence/WEB-INF/classes/confluence-init.properties
+  #       line: "bamboo.shared.home=/efs-confluence"
+  - name: Execute the script
+    become: yes
+    copy:
+      src: ./jira.service
+      dest: /etc/systemd/system/
+  - name: reload systemctl
+    become: yes
+    command: systemctl daemon-reload
+  - name: Start jira
+    become: yes
+    service: name=jira.service state=started enabled=yes
+       
